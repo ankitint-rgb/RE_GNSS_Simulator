@@ -1,0 +1,43 @@
+name: Build GNSS Simulator Windows EXE
+
+on:
+  push:
+    branches:
+      - main # Triggers the build automatically whenever you push code to 'main'
+  workflow_dispatch: # Allows you to trigger the build manually via the GitHub web UI
+
+jobs:
+  build-windows:
+    runs-on: windows-latest # Command GitHub to provision a cloud Windows machine
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Compile Standalone EXE via PyInstaller
+        run: |
+          pyinstaller --noconfirm --onefile --windowed --add-data "gps-sdr-sim.exe;." --add-data "brdc0010.22n;." main.py
+
+      - name: Assemble Final Distribution Package
+        run: |
+          mkdir release_pack
+          xcopy dist\main.exe release_pack\RE_GNSS_Simulator.exe* /Y
+          xcopy gps-sdr-sim.exe release_pack\ /Y
+          xcopy brdc0010.22n release_pack\ /Y
+          powershell Compress-Archive -Path release_pack\* -DestinationPath RE_GNSS_Simulator_Windows.zip
+
+      - name: Upload Finished ZIP to GitHub
+        uses: actions/upload-artifact@v4
+        with:
+          name: GNSS_Simulator_Windows_Build
+          path: RE_GNSS_Simulator_Windows.zip
