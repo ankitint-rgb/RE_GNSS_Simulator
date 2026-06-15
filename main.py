@@ -51,6 +51,7 @@ try:
     from PyQt6.QtWidgets import (
         QApplication, QMainWindow, QWidget, QPushButton, QLineEdit,
         QTextEdit, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QGroupBox,
+        QCheckBox
     )
     from PyQt6.QtCore import QThread, pyqtSignal, Qt
     from PyQt6.QtGui import QTextCursor, QFont
@@ -61,6 +62,7 @@ except ImportError:  # pragma: no cover - fallback path
     from PyQt5.QtWidgets import (
         QApplication, QMainWindow, QWidget, QPushButton, QLineEdit,
         QTextEdit, QLabel, QVBoxLayout, QHBoxLayout, QFileDialog, QGroupBox,
+        QCheckBox
     )
     from PyQt5.QtCore import QThread, pyqtSignal, Qt
     from PyQt5.QtGui import QTextCursor, QFont
@@ -168,7 +170,7 @@ class SimulatorWorker(QThread):
         self.gpx_path = gpx_path
         self.usrp_ip = usrp_ip
         self.work_dir = work_dir
-
+        self.loop_route = loop_route
         # Cooperative stop flag, set from the UI thread. A plain bool is safe
         # here because it is only ever set True (one-way) and read in a loop.
         self._stop_requested = False
@@ -523,19 +525,25 @@ class SimulatorWorker(QThread):
         metadata.end_of_burst = False
         metadata.has_time_spec = False
 
-        # --- Infinite transmit loop --------------------------------------
-        self._log("[USRP] Transmitting (route will loop endlessly)...")
+        # --- Transmit loop --------------------------------------
+        loop_mode_text = "endlessly" if self.loop_route else "once"
+        self._log(f"[USRP] Transmitting (route will play {loop_mode_text})...")
+
         loop_count = 0
         while not self._stop_requested:
             loop_count += 1
-            self._log(f"[USRP] --- loop #{loop_count} ---")
+            self._log(f"[USRP] --- Transmission pass #{loop_count} ---")
             pos = 0
             while pos < total and not self._stop_requested:
                 chunk = samples[pos:pos + max_samps]
-                # send() returns the number of samples accepted.
                 tx_streamer.send(chunk, metadata)
-                metadata.start_of_burst = False  # only the very first chunk
+                metadata.start_of_burst = False
                 pos += chunk.shape[0]
+
+            # If the user unchecked the loop box, break after one full pass
+            if not self.loop_route:
+                self._log("[USRP] Destination reached. Stopping transmission.")
+                break
 
         # --- Flush / end the burst cleanly -------------------------------
         self._log("[USRP] Stopping stream...")
@@ -611,7 +619,14 @@ class MainWindow(QMainWindow):
         usrp_layout.addWidget(self.ip_input)
         root.addWidget(usrp_box)
 
-        # --- Control buttons ---------------------------------------------
+        # --- Options Group ---------------------------------
+        options_layout = QHBoxLayout()
+        self.loop_checkbox = QCheckBox("Loop Route")
+        self.loop_checkbox.setChecked(True)
+        options_layout.addWidget(self.loop_checkbox)
+        root.addLayout(options_layout)
+
+        # --- Control buttons -------------------------------------------
         btn_layout = QHBoxLayout()
         self.start_btn = QPushButton("Start")
         self.start_btn.clicked.connect(self.on_start)
@@ -674,6 +689,7 @@ class MainWindow(QMainWindow):
         self.ip_input.setEnabled(False)
 
         # --- Spin up the worker ------------------------------------------
+        is_looping = self.loop_checkbox.isChecked()
         self.worker = SimulatorWorker(self.gpx_path, ip, self.work_dir)
         self.worker.log_signal.connect(self._log)
         self.worker.finished_signal.connect(self.on_finished)
