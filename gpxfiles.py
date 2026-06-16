@@ -2,7 +2,7 @@ import requests
 import os
 
 # 1. Insert your OpenRouteService API key here
-API_KEY = 'YOUR_OPENROUTESERVICE_API_KEY'
+API_KEY = 'eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6Ijc1MTJkYjM0MDJkYjQyNDRiZjNlZDc1Y2E2NDA1ZTg4IiwiaCI6Im11cm11cjY0In0='
 
 # 2. Define 10 LONG-DISTANCE routes for vehicle testing
 # IMPORTANT: OpenRouteService requires coordinates in [Longitude, Latitude] format.
