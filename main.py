@@ -524,7 +524,7 @@ class SimulatorWorker(QThread):
         metadata.start_of_burst = True
         metadata.end_of_burst = False
         metadata.has_time_spec = False
-
+        
         # --- Transmit loop --------------------------------------
         loop_mode_text = "endlessly" if self.loop_route else "once"
         self._log(f"[USRP] Transmitting (route will play {loop_mode_text})...")
