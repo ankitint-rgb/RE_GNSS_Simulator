@@ -41,7 +41,7 @@ import time
 import tempfile
 import subprocess
 import traceback
-
+import platform
 # ---------------------------------------------------------------------------
 # Qt import shim: prefer PyQt6, gracefully fall back to PyQt5.
 # The rest of the code uses the PyQt6 enum style (e.g. Qt.AlignmentFlag) and
@@ -155,7 +155,7 @@ class SimulatorWorker(QThread):
     # boolean success flag and a final status message.
     finished_signal = pyqtSignal(bool, str)
 
-    def __init__(self, gpx_path: str, usrp_ip: str, work_dir: str):
+    def __init__(self, gpx_path: str, usrp_ip: str, work_dir: str, loop_route:bool):
         """
         Parameters
         ----------
@@ -392,6 +392,15 @@ class SimulatorWorker(QThread):
     # ------------------------------------------------------------------ #
     def _generate_baseband(self):
         """Invoke the bundled gps-sdr-sim.exe, streaming output to the UI."""
+        if platform.system() != "Windows":
+            self._log("[WARNING] macOS detected. Skipping Windows .exe execution.")
+            self._log("[WARNING] Creating a dummy temp_route.bin to continue UI test...")
+
+            # Create a fake dummy file so Step 3 doesn't crash looking for it
+            with open(os.path.join(self.work_dir, "temp_route.bin"), "wb") as f:
+                f.write(b"dummy data")
+            return
+
         exe = resource_path(GPS_SDR_SIM_EXE)
         eph = resource_path(EPHEMERIS_FILE)
 
@@ -460,11 +469,30 @@ class SimulatorWorker(QThread):
     # ------------------------------------------------------------------ #
     def _stream_to_usrp(self):
         """Configure the USRP and loop the baseband file until Stop."""
-        if uhd is None:
-            raise RuntimeError(
-                "The 'uhd' Python module is not available. Install the Ettus "
-                "UHD 4.x driver with Python bindings."
-            )
+        if platform.system() != "Windows" or 'uhd' not in globals():
+            self._log("[WARNING] UHD missing or macOS detected. Entering UI Simulation Mode...")
+
+            loop_mode_text = "endlessly" if self.loop_route else "once"
+            self._log(f"[USRP-SIM] Transmitting (route will play {loop_mode_text})...")
+
+            loop_count = 0
+            while not self._stop_requested:
+                loop_count += 1
+                self._log(f"[USRP-SIM] --- Transmission pass #{loop_count} ---")
+
+                # Simulate the time it takes to transmit the route
+                for _ in range(5):
+                    if self._stop_requested:
+                        break
+                    time.sleep(1) # Wait 1 second per tick
+
+                # If the user unchecked the loop box, break after one full simulated pass
+                if not self.loop_route:
+                    self._log("[USRP-SIM] Destination reached. Stopping transmission.")
+                    break
+
+            self._log("[USRP-SIM] Stopping stream...")
+            return
 
         # --- Connect (with graceful timeout handling) ---------------------
         self._log(f"[USRP] Connecting to {self.usrp_ip} ...")
@@ -524,7 +552,7 @@ class SimulatorWorker(QThread):
         metadata.start_of_burst = True
         metadata.end_of_burst = False
         metadata.has_time_spec = False
-        
+
         # --- Transmit loop --------------------------------------
         loop_mode_text = "endlessly" if self.loop_route else "once"
         self._log(f"[USRP] Transmitting (route will play {loop_mode_text})...")
@@ -690,7 +718,7 @@ class MainWindow(QMainWindow):
 
         # --- Spin up the worker ------------------------------------------
         is_looping = self.loop_checkbox.isChecked()
-        self.worker = SimulatorWorker(self.gpx_path, ip, self.work_dir)
+        self.worker = SimulatorWorker(self.gpx_path, ip, self.work_dir, is_looping)
         self.worker.log_signal.connect(self._log)
         self.worker.finished_signal.connect(self.on_finished)
         self.worker.start()
